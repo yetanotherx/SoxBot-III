@@ -193,37 +193,24 @@ Block quote
 	foreach( $channels as $chan ) {
 		$chan = explode(',',$chan);
 		foreach( $chan as $ch ) {
+		        //if( strtolower($ch) == "##juliancolton" ) continue;
 			$c[] = strtolower($ch);
 		}
 	}
 	$channels = array_filter(array_unique(array_merge($c)));
 	echo implode(', ', $channels);
+	
+	//$channels = array( '##juliancolton' );
  
 	//CONNECT TO MYSQL
-	$m = array();
-	$mysql = mysql_connect($db.$dbdomain.':'.$databaseport,$databaseuser,$databasepass,/* Force reconnect --> */ true);
-	mysql_select_db(str_replace('-', '_', $db), $mysql);
- 
-    $result = mysql_query( "SELECT * FROM interwiki;" );
-    if( !$result ) fwrite( $irc,$cmd.' :Couldn\'t get a result.'."\n" );
-    while( $row = mysql_fetch_assoc( $result ) ) {
-     	$m[] = array( '', $row['iw_prefix'], $row['iw_url'] );
-    }
-    $m[] = array( '', 'scriptwiki', 'http://scriptwiki.net/wiki/$1' );
+
+	$enwiki_mysql = mysql_connect("enwiki-p.db.toolserver.org",$databaseuser,$databasepass,/* Force reconnect --> */ true);
+	@mysql_select_db("enwiki_p", $enwiki_mysql) or die( "MySQL error: " .mysql_error() );
+
 	$mysql = mysql_connect( $mysqlhost.':'.$mysqlport,$mysqluser,$mysqlpass );
 	@mysql_select_db( $mysqldb, $mysql ) or die( "MySQL error: " .mysql_error() );
  
 	function getInterwiki( $link, $iw ) {
-		global $m,$irc,$cmd;
-		if( $link == $iw ) { return str_replace('$1',$link,'http://en.wikipedia.org/wiki/$1'); }
- 
-		foreach( $m as $key => $value ) {
-			if( $m[$key][1] == $iw ) {
-				$r = explode(':', $link);
-				isset($r[1])?$r = $r[1]:$r = $r[0];
-				return str_replace('$1',$r,$m[$key][2]);
-			}
-		}
 		return str_replace('$1',$link,'http://en.wikipedia.org/wiki/$1');
 	}
  
@@ -240,7 +227,6 @@ Block quote
 		fwrite( $irc,'PASS '.$ircpass."\n" ); 
 		fwrite( $irc,'USER '.$user.' "1" :SoxBot III (version '.$version.')'."\n" ); 
 		fwrite( $irc,'NICK '.$user."\n" ); 
-		sleep(5);
  
 		//Do we still have the connection?
 		while (!feof($irc)) {
@@ -274,6 +260,8 @@ Block quote
 			$cloak = explode('@',$d[0]);
 			$cloak = $cloak[1];
 			if(!empty($cloak)) echo "Cloak is $cloak.\n";
+			
+			if( $cloak == "wikipedia/soxred93/bot/SoxBot" ) continue;
  
 			//Easier to recognize variable
 			$chan = strtolower($d[2]);
@@ -284,7 +272,6 @@ Block quote
 			} 
 			//Time to join the channels
 			elseif ( ( $d[1] == '376' ) or ( $d[1] == '422' ) ) {
-				sleep(5);
 				foreach ($channels as $chan) {
 					if( $chan == "#wikipedia-en" ) { continue; }
 					echo "\n\nJOINING $chan!!!\n\n\n";
@@ -382,7 +369,7 @@ Block quote
 				}
  
 				//Main function parser
-				if ( in_array( substr($me,0,1), array( '!', '@', '~', '.' ) ) || in_array( substr($me,0,8), array( 'SoxBot: ', 'SoxBot, ' ) ) ) {
+				if ( in_array( substr($me,0,1), array( '!', '@', '~', '.', '#', '$', '%', '^', '&', '*', '?' ) ) || in_array( substr($me,0,8), array( 'SoxBot: ', 'SoxBot, ' ) ) ) {
 					if( in_array( substr($me,0,8), array( 'SoxBot: ', 'SoxBot, ' ) ) ) {
 						$command = explode(' ',$me);
 						$command = $command[0];
@@ -407,8 +394,8 @@ Block quote
 						'count', 
 						'eval', 
 						'amsg', 
-						'die', 
-						'restart', 
+						/* 'die', */
+						/*'restart', */
 						'blacklistadd', 
 						'maxlag', 
 						'blacklistdel', 
@@ -427,11 +414,13 @@ Block quote
 						'h',
 						'hits',
 						'staff',
-						'namesadd', 
+						'namesadd',
 						'namesdel',
 						'rfxupdate',
 						'dns',
-						'rdns'
+						'rdns',
+						'rand',
+						'howlong',
 					);
  
 					//Don't do anything if the command doesn't even exist
@@ -586,16 +575,48 @@ Block quote
 							$r3 = str_replace('+','_',$r3);
  
 							echo "\n\n\n{$d[2]}\n\n";
+							
+							
 							if( $d[2] == "#wikipedia-simple" ) {
 								$count = $simplewpq->contribcount($param);
 								$r3 .= "/simple";
+								fwrite( $irc,$cmd.' :'.$param.' has '.$count." contributions. For more info, see http://toolserver.org/~soxred93/ec/$r3 \n" ); 
+								break;
 							}
-							else {
-								$count = $wpq->contribcount($param);
+							
+							$param = str_replace('_', ' ', $param);
+							
+							if (!mysql_ping($enwiki_mysql)) { 
+								$enwiki_mysql = mysql_connect("enwiki-p.db.toolserver.org",$databaseuser,$databasepass,/* Force reconnect --> */ true);
+								@mysql_select_db("enwiki_p", $enwiki_mysql) or die( "MySQL error: " .mysql_error() );
 							}
- 
-							fwrite( $irc,$cmd.' :'.$param.' has '.$count." contributions. For more info, see http://toolserver.org/~soxred93/ec/".$r3." \n" ); 
-							unset($r3);
+							
+							$query = 'SELECT COUNT(*) AS count FROM archive WHERE ar_user_text = \''.mysql_real_escape_string($param).'\';';
+							echo $query;
+							$result = mysql_query( $query, $enwiki_mysql );
+							var_dump($result);
+							$row = mysql_fetch_assoc( $result );
+							var_dump($row);
+							$edit_count_deleted = $row['count'];
+							unset( $row, $query, $result );
+							
+							if (!mysql_ping($enwiki_mysql)) { 
+								$enwiki_mysql = mysql_connect("enwiki-p.db.toolserver.org",$databaseuser,$databasepass,/* Force reconnect --> */ true);
+								@mysql_select_db("enwiki_p", $enwiki_mysql) or die( "MySQL error: " .mysql_error() );
+							}
+							
+							$query = 'SELECT COUNT(*) AS count FROM revision WHERE rev_user_text = \''.mysql_real_escape_string($param).'\';';
+							echo $query;
+							$result = mysql_query( $query, $enwiki_mysql );
+							var_dump($result);
+							$row = mysql_fetch_assoc( $result );
+							var_dump($row);
+							$edit_count_live = $row['count'];
+							unset( $row, $query, $result );
+							
+							$edit_count_total = $edit_count_live + $edit_count_deleted;
+ 							
+ 							fwrite( $irc,$cmd.' :'.$param.' has '.$edit_count_total." total contributions, $edit_count_live live edits, and $edit_count_deleted deleted edits. For more info, see http://toolserver.org/~soxred93/ec/$r3 \n" ); 
 							break;
 						case 'soxbotcounts':
 							//Parse page for list of bots
@@ -737,11 +758,25 @@ Block quote
 						case 'namesadd':
 							if (in_array($cloak, $trustedusers)) {
 								$param = explode(' ',$param);
-								$contents = unserialize(file_get_contents('/home/soxred93/bots/soxbot-test/names'));
-								$contents[$param[0]] = $param[1];
-								file_put_contents('/home/soxred93/bots/soxbot-test/names',
-									serialize($contents)
-								);	
+								
+								if (!mysql_ping($mysql)) {
+									$mysql = mysql_connect( $mysqlhost.':'.$mysqlport,$mysqluser,$mysqlpass );
+									@mysql_select_db( $mysqldb, $mysql );
+									echo mysql_stat();
+								}
+								echo mysql_stat();
+								//$contents = unserialize(file_get_contents('/home/soxred93/bots/soxbot-test/names'));
+								//$contents[$param[0]] = $param[1];
+								//file_put_contents('/home/soxred93/bots/soxbot-test/names',
+								//	serialize($contents)
+								//);
+								echo mysql_stat();
+								echo "INSERT INTO names VALUES ('".mysql_real_escape_string($param[0])."', '".mysql_real_escape_string($param[1])."');";
+								echo mysql_stat();
+								mysql_query( "INSERT INTO names VALUES ('".mysql_real_escape_string($param[0])."', '".mysql_real_escape_string($param[1])."');", $mysql );
+								echo mysql_stat();
+								echo mysql_info();
+								echo mysql_stat();
 								fwrite( $irc,$cmd.' :Done!'."\n" );
 							}
 							else {
@@ -751,11 +786,19 @@ Block quote
 						case 'namesdel':
 							if (in_array($cloak, $trustedusers)) {
 								$param = explode(' ',$param);
-								$contents = unserialize(file_get_contents('/home/soxred93/bots/soxbot-test/names'));
-								unset($contents[$param[0]]);
-								file_put_contents('/home/soxred93/bots/soxbot-test/names',
-									serialize($contents)
-								);
+								
+								if (!mysql_ping($mysql)) {
+									$mysql = mysql_connect( $mysqlhost.':'.$mysqlport,$mysqluser,$mysqlpass );
+									@mysql_select_db( $mysqldb, $mysql );
+								}
+								
+								//$contents = unserialize(file_get_contents('/home/soxred93/bots/soxbot-test/names'));
+								//unset($contents[$param[0]]);
+								//file_put_contents('/home/soxred93/bots/soxbot-test/names',
+								//	serialize($contents)
+								//);
+								
+								mysql_query( "DELETE FROM names WHERE '".mysql_real_escape_string($param[0])."' = nick;", $mysql );
 								fwrite( $irc,$cmd.' :Done!'."\n" );
 							}
 							else {
@@ -953,7 +996,13 @@ Block quote
 							break;
 						case 'h':
 						case 'hits':
-							$contents = unserialize(file_get_contents('/home/soxred93/bots/soxbot-test/names'));
+							//$contents = unserialize(file_get_contents('/home/soxred93/bots/soxbot-test/names'));
+							
+							$result = mysql_query( "SELECT * FROM names" );
+							$contents = array();
+							while( $row = mysql_fetch_assoc( $result ) ) {
+								$contents[ $row['nick'] ] = $row['user'];
+							}
  
 							if( !$param || $param == '' ) { 
 								if( isset($contents[$nick])) { 
@@ -978,16 +1027,14 @@ Block quote
 								$simplehits = 'en';
 							}
 							
-							$date = date("Ym", strtotime('-1 day'));
-							
 							$r3 = urlencode($param);
 							$r3 = str_replace('+','_',$r3);
 							$r3 = str_replace('%2F','/',$r3);
-							$results = $http->get('http://stats.grok.se/json/'.$simplehits.'/'.$date.'/'.$r3);
+							$results = $http->get('http://stats.grok.se/json/'.$simplehits.'/'.date("Ym").'/'.$r3);
 							$json = json_decode($results);
 							
 							if($json) {
-								fwrite( $irc,$cmd.' :'.$json->{'title'}.' has been viewed '.$json->{'total_views'}.' times in '.$json->{'month'}.". See ".'http://stats.grok.se/'.$simplehits.'/'.$date.'/'.$r3."\n" ); 
+								fwrite( $irc,$cmd.' :'.$json->{'title'}.' has been viewed '.$json->{'total_views'}.' times in '.$json->{'month'}.". See ".'http://stats.grok.se/'.$simplehits.'/'.date("Ym").'/'.$r3."\n" ); 
 							}
 							else {
 								fwrite( $irc,$cmd.' :Couldn\'t find hit count.'."\n" );
@@ -1009,39 +1056,59 @@ Block quote
 								fwrite( $irc,$cmd.' :rfxupdate can only be used by trusted members.'."\n" );
 							}
 							break;
+						case 'ip2host':
 						case 'rdns':
 							if( !$param || $param == '' ) { fwrite( $irc,$cmd.' :Required parameter not given.'."\n" );continue; }
  
-							$rdns = explode("\n",shell_exec("/usr/bin/nslookup $param"));
-							$rdns = $rdns[6];
+							$rdns = shell_exec("/bin/sh /home/soxred93/rdns.sh $param");
  
 							if( !$rdns ) {
 								fwrite( $irc,$cmd.' :Not found.'."\n" );continue;
 							}
- 
-							if( preg_match('/Address:\s*(.*?)/i', $rdns, $result) ) {
-								fwrite( $irc,$cmd.' :Result: '.$result[1]."\n" );continue;
-							}
+ 							
+ 							$rdns = substr( $rdns, 0, ( strlen( $rdns ) -1 ) );
+							fwrite( $irc,$cmd.' :Result: '.$rdns."\n" );continue;
 							break;
+						case 'host2ip':
 						case 'dns':
 							if( !$param || $param == '' ) { fwrite( $irc,$cmd.' :Required parameter not given.'."\n" );continue; }
  
-							$rdns = shell_exec("/usr/bin/host $param");
+							$dns = shell_exec("/bin/sh /home/soxred93/dns.sh $param");
  
-							if( !$rdns ) {
+							if( !$dns ) {
 								fwrite( $irc,$cmd.' :Not found.'."\n" );continue;
 							}
- 
-							if( preg_match('/(.*?) has address (.*?)/i', $rdns, $result) ) {
-								fwrite( $irc,$cmd.' :Result: '.$result[2]."\n" );continue;
-							}
+ 							
+							fwrite( $irc,$cmd.' :Result: '.$dns."\n" );continue;
 							break;
+						case 'rand':
+							if( !$param || $param == '' ) { fwrite( $irc,$cmd.' :Required parameter not given.'."\n" );continue; }
+							
+ 							$rand = explode( ' ', $param );
+ 							$rand = mt_rand($rand[0],$rand[1]);
+ 							if( $rand[1] > 20 ) break;
+ 							echo "Random number: $rand\n";
+ 							fwrite( $irc,$cmd.' :Result: '.$rand."\n" );
+ 							break;
+ 						case 'howlong':
+ 							break;
+							if( !$param || $param == '' ) { fwrite( $irc,$cmd.' :Required parameter not given.'."\n" );continue; }
+ 							$rand = explode( ' ', $param );
+ 							$rand = mt_rand($rand[0],$rand[1]);
+ 							if( $rand[1] > 20 ) break;
+
+ 							echo "Random number: $rand\n";
+ 							$randstr = "8";
+ 							$randstr .= str_repeat( "=", $rand );
+ 							$randstr .= "D";
+ 							fwrite( $irc,$cmd.' :'.$randstr."\n" );
+ 							break;
 					}
 				}
 			}
 		}
 		posix_kill(posix_getppid(), SIGTERM);
-		die();
+		die("GHGHHAHHAAAAAAAAAA");
 	}
  
 	$run = $wpq->getpage('User:'.$user.'/Run');
@@ -1102,7 +1169,9 @@ Block quote
 					$change['comment'] = $m[13];
  
 //					include 'cluebot.stalk.config.php';
- 
+					$pos = strpos($change['flags'], 'B');
+ 					if ($pos !== false) continue;
+ 					
 					$stalkchannel = array();
 					foreach ($stalk as $key => $value) if (fnmatch(str_replace('_',' ',$key),str_replace('_',' ',$change['user']))) $stalkchannel = array_merge($stalkchannel,explode(',',$value));
 					foreach ($edit as $key => $value) if (fnmatch(str_replace('_',' ',$key),str_replace('_',' ',$change['namespace'].$change['title']))) $stalkchannel = array_merge($stalkchannel,explode(',',$value));
@@ -1227,8 +1296,8 @@ Block quote
 							fwrite( $irc,'PRIVMSG '.$y.' :Reverting revision http://en.wikipedia.org/wiki/?diff='.$change['revid'].' by '.$change['user'].'.'."\n" ); usleep(500);
 						}
  
-						//Remainder of $ircverbosechannels
-						foreach (array() as $y) {
+						//Remainder of $ircverbosechannel
+						foreach (explode(',',$ircverbosechannel) as $y) {
 							fwrite( $irc,'PRIVMSG '.$y.' :Reverting revision '.$change['revid'].' by '.$change['user'].'.'."\n" ); usleep(500);
 						}
 						unset($diff, $revision, $url);
@@ -1237,7 +1306,7 @@ Block quote
 						$currev = $wpapi->revisions($change['title'],3,'newer',false,$change['revid']);
 						if (($currev[0]['revid'] != $change['revid']) && ($currev[0]['user'] != $change['user']) && $currev[0]['user']) {
 							mysql_query('INSERT INTO `beaten` (`id`,`article`,`diff`,`user`) VALUES (NULL,\''.mysql_real_escape_string($change['title']).'\',\''.mysql_real_escape_string($change['url']).'\',\''.mysql_real_escape_string($currev[1]['user']).'\')');
-							foreach (array() as $y) {
+							foreach (explode(',',$ircverbosechannel) as $y) {
 								fwrite( $irc,'PRIVMSG '.$y.' :Inserting '.$change['revid'].' into `beaten` table.'."\n" ); usleep(500);
 							}
 						}
@@ -1258,20 +1327,20 @@ Block quote
 							$result = mysql_query($query);
 							if( !$result ) { die( "MySQL error: ".mysql_error() ); }
  
-							//Remainder of $ircverbosechannels
-							foreach (array() as $y) {
+							//Remainder of $ircverbosechannel
+							foreach (explode(',',$ircverbosechannel) as $y) {
 								fwrite( $irc,'PRIVMSG '.$y.' :Querying if '.$change['user'].' has been reverted recently.'."\n" ); usleep(500);
 							}
 							echo "Querying if user has been reverted recently.\n";
 							if ( mysql_num_rows( $result ) != 0 ) {
-								//Remainder of $ircverbosechannels
-								foreach (array() as $y) {
+								//Remainder of $ircverbosechannel
+								foreach (explode(',',$ircverbosechannel) as $y) {
 									fwrite( $irc,'PRIVMSG '.$y.' :Yes, not reverting.'."\n" ); usleep(500);
 								}
 								continue;
 							}
-							//Remainder of $ircverbosechannels
-							foreach (array() as $y) {
+							//Remainder of $ircverbosechannel
+							foreach (explode(',',$ircverbosechannel) as $y) {
 								fwrite( $irc,'PRIVMSG '.$y.' :No, will continue to revert.'."\n" ); usleep(500);
 							}
  
@@ -1293,14 +1362,14 @@ Block quote
 							}
 							mysql_query($query);
  
-							//Remainder of $ircverbosechannels
-							foreach (array() as $y) {
+							//Remainder of $ircverbosechannel
+							foreach (explode(',',$ircverbosechannel) as $y) {
 								fwrite( $irc,'PRIVMSG '.$y.' :Inserting '.$change['revid'].' into `testing`.'."\n" ); usleep(500);
 							}
 							if (mysql_affected_rows( $mysql ) == 0) {
 								echo "Problem?\n";
-								//Remainder of $ircverbosechannels
-								foreach (array() as $y) {
+								//Remainder of $ircverbosechannel
+								foreach (explode(',',$ircverbosechannel) as $y) {
 									fwrite( $irc,'PRIVMSG '.$y.' :MySQL error? '.mysql_error()."\n" ); usleep(500);
 								}
 								continue;
@@ -1314,13 +1383,13 @@ Block quote
 							$token = $token['query']['pages'][$wpq->getpageid($change['title'])]['revisions'][0]['rollbacktoken'];
 							echo "Token: $token\n";
  
-							//Remainder of $ircverbosechannels
-							foreach (array() as $y) {
+							//Remainder of $ircverbosechannel
+							foreach (explode(',',$ircverbosechannel) as $y) {
 								fwrite( $irc,'PRIVMSG '.$y.' :Getting rollback token.'."\n" ); usleep(500);
 							}
 							if( $token == '' ) {
-								//Remainder of $ircverbosechannels
-								foreach (array() as $y) {
+								//Remainder of $ircverbosechannel
+								foreach (explode(',',$ircverbosechannel) as $y) {
 									fwrite( $irc,'PRIVMSG '.$y.' :Error getting token.'."\n" ); usleep(500);
 								}
 							}
@@ -1336,16 +1405,16 @@ Block quote
 								false
 							);
  
-							//Remainder of $ircverbosechannels
-							foreach (array() as $y) {
+							//Remainder of $ircverbosechannel
+							foreach (explode(',',$ircverbosechannel) as $y) {
 								fwrite( $irc,'PRIVMSG '.$y.' :Rolling back '.$change['revid'].'.'."\n" ); usleep(500);
 							}
 							echo "Reverting.\n";
  
 							//If it returned true, let's warn the user
 							if ($return !== false) {
-								//Remainder of $ircverbosechannels
-								foreach (array() as $y) {
+								//Remainder of $ircverbosechannel
+								foreach (explode(',',$ircverbosechannel) as $y) {
 									fwrite( $irc,'PRIVMSG '.$y.' :Returned true, attempting to warn.'."\n" ); usleep(500);
 								}
 								$warning = getWarningLevel( $change['user'] );
@@ -1372,8 +1441,8 @@ Block quote
 									$talk = $wpq->getpage('User talk:'.$change['user']);	
 									$wpi->post(
 										'User talk:'.$change['user'],$talk."\n\n".'{{subst:User:'.$user.'/warn|1='.$change['title'].'|2='.$warning.'|3='.$mysqlid.'}} '.SIGNATURE.' ~~~~~'."\n".$append,'Warning user of test edits (Warning #'.$warning.')',false,null,false); //This fugly code warns the user
-									//Remainder of $ircverbosechannels
-									foreach (array() as $y) {
+									//Remainder of $ircverbosechannel
+									foreach (explode(',',$ircverbosechannel) as $y) {
 										fwrite( $irc,'PRIVMSG '.$y.' :Warning '.$change['user'].'.'."\n" ); usleep(500);
 									}
 								}
@@ -1399,7 +1468,7 @@ Block quote
 										"* {{".$template."|1=".$change['user']."}} ".
 										"User made possible test edits, such as [http://en.wikipedia.org/wiki/?diff=".$change['revid']." 1]. ".SIGNATURE." ~~~~~";
 										$wpi->post('Wikipedia:Administrator intervention against vandalism/TB2',$aiv,'Reporting [[Special:Contributions/'.$change['user']."|".$change['user']."]] (BOT EDIT)");
-										foreach (array() as $y) {
+										foreach (explode(',',$ircverbosechannel) as $y) {
 											fwrite( $irc,'PRIVMSG '.$y.' :Warning level is 4, reporting to AIV.'."\n" ); usleep(500);
 										} 
 									} else {
@@ -1413,34 +1482,34 @@ Block quote
 								mysql_query('UPDATE `testing` SET `reverted` = 1 WHERE `id` = \''.mysql_real_escape_string($mysqlid).'\'');
 							} 
 							else {//Somehow, it returned false. Let's figure out why.
-								//Remainder of $ircverbosechannels
-								foreach (array() as $y) {
+								//Remainder of $ircverbosechannel
+								foreach (explode(',',$ircverbosechannel) as $y) {
 									fwrite( $irc,'PRIVMSG '.$y.' :Returned false, figuring out why.'."\n" ); usleep(500);
 								}
 								$currev = $wpapi->revisions($change['title']);
 								if (($currev[0]['revid'] != $change['revid']) && ($currev[0]['user'] != $change['user'])) {
 									//We've been beaten!!!
 									mysql_query('INSERT INTO `beaten` (`id`,`article`,`diff`,`user`) VALUES (NULL,\''.mysql_real_escape_string($change['title']).'\',\''.mysql_real_escape_string($change['url']).'\',\''.mysql_real_escape_string($rev['user']).'\')');
-									//Remainder of $ircverbosechannels
-									foreach (array() as $y) {
+									//Remainder of $ircverbosechannel
+									foreach (explode(',',$ircverbosechannel) as $y) {
 										fwrite( $irc,'PRIVMSG '.$y.' :I was beaten by '.$rev['user'].'!'."\n" ); usleep(500);
 									}
 								}
 								else {
-									//Remainder of $ircverbosechannels
-									foreach (array() as $y) {
+									//Remainder of $ircverbosechannel
+									foreach (explode(',',$ircverbosechannel) as $y) {
 										fwrite( $irc,'PRIVMSG '.$y.' :There was an unknown rollback error.'."\n" ); usleep(500);
 									}
 									file_put_contents('/home/soxred93/bots/soxbot-test/errors.txt',file_get_contents('/home/soxred93/bots/soxbot-test/errors.txt')."Date: ".date( 'Y-m-d' )."\n".$return."\n----------------------\n") or die('Error');
-									foreach (array() as $y) {
+									foreach (explode(',',$ircverbosechannel) as $y) {
 										fwrite( $irc,'PRIVMSG '.$y.' :Rollback result has been posted to errors.txt.'."\n" ); usleep(500);
 									}
 									echo "ERROR\n";
 								}
 							}//End if ($return !== FALSE)
 						}//End if beaten check
-						//Remainder of $ircverbosechannels
-						foreach (array() as $y) {
+						//Remainder of $ircverbosechannel
+						foreach (explode(',',$ircverbosechannel) as $y) {
 							fwrite( $irc,'PRIVMSG '.$y.' :-- Done --.'."\n" ); usleep(500);
 						}
 					}//End check for vandalism
