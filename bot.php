@@ -21,56 +21,18 @@
  	//INCLUDES
 	require('/home/soxred93/bots/soxbot-test/wikibot.classes.php');
 	require('/home/soxred93/bots/soxbot-test/bot.config.php');
+	require('/home/soxred93/bots/soxbot-test/scorelist.php');
+	require('/home/soxred93/bots/soxbot-test/functions.php');
  
  
 	//DEFINES
-	$version = '2.1.5';
-	//ini_set('memory_limit', '64M'); //ACK! Stop emailing me, slayerd!
+	$version = '2.2';
+	$pids = array();
 	define( 'SIGNATURE', '[[User:SoxBot III|SoxBot III]] ([[User talk:SoxBot III|talk]] | [[User:X!|owner]])' );
 	define( 'SCORELIMIT', -10 );
-	$pids = array();
-	$nick = '';
-	$testlist = array(
-		'/\[\[(Link title|File:Example\.jpg|Media:Example\.ogg)\]\]/' => -5,
-		'/\'\'\'Bold text\'\'\'/'			                          => -2,
-		'/\'\'Italic text\'\'/'			                              => -2,
-		'/\'\'\'\'\'Bold text\'\'\'\'\'/'			                  => -5,
-		'/\'\'\'\'\'Italic text\'\'\'\'\'/'			                  => -5,
-		'/\[http:\/\/www\.example\.com link title\]/'	              => -8,
-		'/== Headline text ==/'				                          => -12,
-		'/\<math\>Insert formula here\<\/math\>/'			          => -20,
-		'/\<nowiki\>Insert non-formatted text here\<\/nowiki\>/'	  => -20,
-		'/#REDIRECT \[\[Insert text\]\]/'			                  => -10,
-		'/\<s\>Strike-through text\<\/s\>/'			                  => -3,
-		'/\<sup\>Superscript text\<\/sup\>/'		                  => -3,
-		'/\<sub\>Subscript text\<\/sub\>/'			                  => -3,
-		'/\<small\>Small Text\<\/small\>/'				              => -3,
-		'/\<!-- Comment --\>/'		                                  => -15,
-		'/\<gallery\>
-(Image|File):Example.jpg\|Caption1
-(Image|File):Example.jpg\|Caption2
-\<\/gallery\>/m'													  => -5,
-		'/\<blockquote\>
-Block quote
-\<\/blockquote\>/m'													  => -5,
-		'/'.preg_quote('{| class="wikitable" border="1"
-|-
-! header 1
-! header 2
-! header 3
-|-
-| row 1, cell 1
-| row 1, cell 2
-| row 1, cell 3
-|-
-| row 2, cell 1
-| row 2, cell 2
-| row 2, cell 3
-|}').'/m'														      => -5,
-		'/\<ref\>Insert footnote text here\<\/ref\>/'				  => -5,
-		'/(ghjk|asdf|zxcv)/i'			                              => -8,
-		'/--\[\[Special:Contributions\/.*\|.*\]\]/'                   => -5
-	);
+	declare(ticks = 1);
+	
+	if( $argv[1] == "debug" ) { define( 'DEBUG', 1 ); } else { define( 'DEBUG', '0' ); }
 	$http   = new http;
 	$wpapi	= new wikipediaapi;
 	$wpq	= new wikipediaquery;
@@ -93,74 +55,15 @@ Block quote
 		'wikimedia/Thehelpfulone',
 		'wikipedia/Stwalkerster',
 	);
- 
- 
-	//FUNCTIONS
-	function score ($list,$data,&$matches = null) {
-		$score = 0;
-		foreach ($list as $preg => $pts) {
-			//echo "Parsing $preg...\n";			
-			if ($x = preg_match_all($preg.'S',$data,$m)) {
-				$matches[$preg] = $x;
-				$score += $pts * $x;
-			}
-		}
-		return $score;
-	}
-	function getWarningLevel( $user ) {
-		global $wpq;
-		$warning = 0;
-		$talk = $wpq->getpage('User talk:'.$user);
-		if (preg_match_all('/<!-- Template:uw-[a-z]*(\d)(im)? -->.*(\d{2}):(\d{2}), (\d+) ([a-zA-Z]+) (\d{4}) \(UTC\)/iU', $talk,$m,PREG_SET_ORDER)) {
-			foreach ($m as $r) {
-				$month = array('January' => 1, 'February' => 2, 'March' => 3,'April' => 4, 'May' => 5, 'June' => 6, 'July' => 7, 'August' => 8, 'September' => 9, 'October' => 10,'November' => 11, 'December' => 12);
-				if ((time() - gmmktime($r[3],$r[4],0,$month[$r[6]],$r[5],$r[7])) <= (2*24*60*60)) {
-					if ($r[1] > $warning) { $warning = $r[1]; }
-				}
-			}
-		}
-		return $warning;
-	}
-	function in_arrayi( $needle, $haystack ) {
-		$found = false;
-		foreach( $haystack as $value ) {
-			if( strtolower( $value ) == strtolower( $needle ) ) {
-				$found = true;
-			}
-		}	
-		return $found;
-	}
- 
- 
-	//SIGHANDLER
-	declare(ticks = 1);
-	function sig_handler($signo) {
-		global $pids, $irc, $feed, $nick;
-		switch ($signo) {
-			case SIGCHLD:
-				while (($x = pcntl_waitpid(0, $status, WNOHANG)) != -1) {
-					if ($x == 0) break;
-					$status = pcntl_wexitstatus($status);
-				}
-				break;
-			case SIGTERM:
-				print_r($pids);
-				foreach($pids as $pid) {
- 
-					echo "Killing $pid\n";
-					posix_kill($pid, SIGINT);
-				}
-				echo "Killing ".posix_getpid()."\n";
-				fwrite( $irc,'QUIT '.$user." :Killed by X!\n" );
-				fwrite( $feed,'QUIT '.$user." :Killed by X!\n" );
-				fclose($irc);
-				fclose($feed);
-				die();
-            case SIGINT:
-            	exit();
-            	break;
-		}
-	}
+	
+	$badtemplates = array(
+ 		'sofixit',
+ 		'done',
+ 	);
+ 	
+ 	$triggercharacters = array( '!', '@', '~', '.', '#', '$', '%', '^', '&', '*', '?' );
+ 	$holycraplongregex = '/^\[\[((Talk|User|Wikipedia|Image|MediaWiki|Template|Help|Category|Portal|Special)(( |_)talk)?:)?([^\x5d]*)\]\] (\S*) (http:\/\/en\.wikipedia\.org\/w\/index\.php\?diff=(\d*)&oldid=(\d*)|http:\/\/en\.wikipedia\.org\/wiki\/\S+)? \* ([^*]*) \* (\(([^)]*)\))? (.*)$/S';
+ 	
 	pcntl_signal(SIGINT,   "sig_handler");
 	pcntl_signal(SIGCHLD,   "sig_handler");
 	pcntl_signal(SIGTERM,   "sig_handler");
@@ -168,8 +71,15 @@ Block quote
  
 	//PARSE CHANNELS
 	$ircconfig = explode("\n",$wpq->getpage('User:'.$owner.'/Channels.js'));
+	
 	$tmp = array();
-	foreach($ircconfig as $tmpline) { if (substr($tmpline,0,1) != '#') { $tmpline = explode('=',$tmpline,2); $tmp[trim($tmpline[0])] = trim($tmpline[1]); } }
+	foreach ( $ircconfig as $tmpline ) { 
+		if ( substr( $tmpline,0,1 ) != '#' ) { //Ignore comments
+			$tmpline = explode( '=',$tmpline,2 ); 
+			$tmp[trim( $tmpline[0] )] = trim($tmpline[1]); 
+		}
+	}
+	
 	$ircchannel = $tmp['ircchannel'];
 	$irctechchannel = $tmp['irctechchannel'];
 	$ircverbosechannel = $tmp['ircverbosechannel'];
@@ -179,48 +89,72 @@ Block quote
 	$irclogchannels = $tmp['irclogchannels'];
 	$ircwikilinkchannels = $tmp['ircwikilinkchannels'];
 	$ircpeakchannels = $tmp['ircpeakchannels'];
+	
 	$channels = array($ircchannel,$irctechchannel,$ircotherchannels,$ircverbosechannel,$ircvandalismchannel,$ircaivchannel,$irclogchannels,$ircwikilinkchannels,$ircpeakchannels);
 	unset($tmp,$tmpline);
+	
+	//PARSE STALKING
 	$stalk = array();
 	$edit = array();
+	
+	//Start with stalking users...
 	$tmp = explode("\n",$wpq->getpage('User:'.$user.'/Autostalk.js'));
-	foreach ($tmp as $tmp2) { if (substr($tmp2,0,1) != '#') { $tmp3 = explode('|',$tmp2,2); $stalk[$tmp3[0]] = trim($tmp3[1]); } }
+	foreach ( $tmp as $tmp2 ) { 
+		if (substr($tmp2,0,1) != '#') { 
+			$tmp3 = explode('|',$tmp2,2); 
+			$stalk[$tmp3[0]] = trim($tmp3[1]); 
+		} 
+	}
+	
+	//Now with stalking pages...
 	$tmp = explode("\n",$wpq->getpage('User:'.$user.'/Autoedit.js'));
-	foreach ($tmp as $tmp2) { if (substr($tmp2,0,1) != '#') { $tmp3 = explode('|',$tmp2,2); $edit[$tmp3[0]] = trim($tmp3[1]); } }
+	foreach ( $tmp as $tmp2 ) { 
+		if (substr($tmp2,0,1) != '#') { 
+			$tmp3 = explode('|',$tmp2,2); 
+			$edit[$tmp3[0]] = trim($tmp3[1]); 
+		} 
+	}
+	
+	//And finish with an unset...
 	unset($tmp,$tmp2,$tmp3);
+	
+	//FILTER
+	//We use array_unique and filter here because there are often duplicate entries
 	$channels = array_filter(array_unique(array_merge($channels,$stalk,$edit)));
+	
+	//Now to split out commas in leftover channels
 	$c = array();
 	foreach( $channels as $chan ) {
 		$chan = explode(',',$chan);
 		foreach( $chan as $ch ) {
-		        //if( strtolower($ch) == "##juliancolton" ) continue;
 			$c[] = strtolower($ch);
 		}
 	}
-	$channels = array_filter(array_unique(array_merge($c)));
+	
+	$channels = array_filter(array_unique($c));
 	echo implode(', ', $channels);
 	
-	//$channels = array( '##juliancolton' );
- 
-	//CONNECT TO MYSQL
-
-	$enwiki_mysql = mysql_connect("enwiki-p.db.toolserver.org",$databaseuser,$databasepass,/* Force reconnect --> */ true);
-	@mysql_select_db("enwiki_p", $enwiki_mysql) or die( "MySQL error: " .mysql_error() );
-
-	$mysql = mysql_connect( $mysqlhost.':'.$mysqlport,$mysqluser,$mysqlpass );
-	@mysql_select_db( $mysqldb, $mysql ) or die( "MySQL error: " .mysql_error() );
- 
-	function getInterwiki( $link, $iw ) {
-		return str_replace('$1',$link,'http://en.wikipedia.org/wiki/$1');
+	//DEBUGGING, so it doesn't take 30 seconds when I'm starting and stopping the bot constantly
+	if( DEBUG == 1 ) {
+		$channels = array( '##juliancolton' );
 	}
  
+
+	//CONNECT TO MYSQL
+	$enwiki_mysql = mysql_connect( "enwiki-p.db.toolserver.org",$databaseuser,$databasepass,/* Force reconnect --> */ true );
+	@mysql_select_db( "enwiki_p", $enwiki_mysql ) or die( "MySQL error: " .mysql_error() );
+
+	$mysql = mysql_connect( "sql:3306",$mysqluser,$mysqlpass );
+	@mysql_select_db( $mysqldb, $mysql ) or die( "MySQL error: " .mysql_error() );
  
-	//CONNECT TO irc.freenode.net ($ircserver)
+ 
+	//CONNECT TO PROXY
 	$irc = fsockopen($ircserver,$ircport,$ircerrno,$ircerrstr,15);
  
 	//FIRST FORK
 	$ircpid = pcntl_fork();
 	$pids[$ircpid] = $ircpid;
+	
 	if ($ircpid == 0) {
  
 		//SET CONFIGS
@@ -230,6 +164,8 @@ Block quote
  
 		//Do we still have the connection?
 		while (!feof($irc)) {
+		
+			//Get the data
 			$data = str_replace(array("\n","\r"),'',fgets($irc,1024));
  
 			//Strip colors, it screws up the bot
@@ -244,10 +180,10 @@ Block quote
 				$d[2] = The channel somethign was spoken in
 				$d[3] = The text that was spoken
 			*/
-			$d = explode(' ',$data);
+			$d = $me = explode(' ',$data);
  
 			//Get the plain text of the message
-			$me = $d;
+			//Why not use $me[3] here? Because $me[3] is only the text up to the first space
 			unset($me[0], $me[1], $me[2]);
 			$me = substr(implode(' ', $me),1);
  
@@ -259,8 +195,9 @@ Block quote
 			//Get the user's cloak
 			$cloak = explode('@',$d[0]);
 			$cloak = $cloak[1];
-			if(!empty($cloak)) echo "Cloak is $cloak.\n";
+			if( !empty($cloak) ) echo "Cloak is $cloak.\n";
 			
+			//Because there's more than one SoxBot, it reads its own posts, causing endless loops
 			if( $cloak == "wikipedia/soxred93/bot/SoxBot" ) continue;
  
 			//Easier to recognize variable
@@ -270,116 +207,109 @@ Block quote
 			if (strtolower($d[0]) == 'ping') {
 				fwrite( $irc,'PONG '.$d[1]."\n" ); 
 			} 
+			
 			//Time to join the channels
 			elseif ( ( $d[1] == '376' ) or ( $d[1] == '422' ) ) {
-				foreach ($channels as $chan) {
-					if( $chan == "#wikipedia-en" ) { continue; }
-					echo "\n\nJOINING $chan!!!\n\n\n";
-					fwrite( $irc,'JOIN '.$chan."\n" ); 
-					sleep(2);
+				foreach ($channels as $joinchan) {
+					echo "\n\nJOINING $joinchan...\n\n";
+					fwrite( $irc,'JOIN '.$joinchan."\n" ); 
+					sleep(1);
 				}
-				//sleep(15);
+				unset( $joinchan );
+
 				foreach (explode(',',$ircchannel) as $y) {
 					fwrite( $irc,'PRIVMSG '.$y.' :IRC logging enabled.'."\n" ); 
 				}
 			}
+			
 			//Main message parser
 			elseif ($d[1] == 'PRIVMSG') {
  
 				//Wikilinker function
-				if (preg_match_all('/\[\[(.*?)\]\]/', $me, $l) && !preg_match('/(\!shortpath|\!link)/i',$data)) {
-					if (in_arrayi($cloak, unserialize(file_get_contents('/home/soxred93/bots/soxbot-test/blacklist') ) ) ) { 
-						fwrite( $irc,$cmd.' :Denied. Your name has been added to the blacklist, to prevent abuse.'." \n" ); 
-						continue; 
-					} 
+				if (preg_match_all('/\[\[(.*?)\]\]/', $me, $l) && !preg_match('/(\!shortpath|\!link)/i',$data)) { 
  
 					if( !in_arrayi( $chan, explode( ',',$ircwikilinkchannels ) ) ) { 
-						echo "Not in a channel I am allowed to wikilink.\n";
+						echo "Message in $chan is not in a channel I am allowed to wikilink.\n";
 						continue; 
 					}
  
 					$i = 1;
-					foreach($l[1] as $links) {
-						if($i >= 5) { continue; }
+					$links = array(); //Will store the full urls
+					foreach($l[1] as $link) {
+						if($i >= 5) break;
  
 						//Deal with piped links
-						if( strpos( $links, '|' ) !== false ) { 
-							$links = explode('|', $links);
-							$links = $links[0];
+						if( strpos( $link, '|' ) !== false ) { 
+							$link = explode('|', $link);
+							$link = $link[0];
 						}
- 
-						$iw = explode(':', $links);
-						$iw = $iw[0];
-						$links = getInterwiki( $links, $iw );
- 
-						$links = str_replace(' ','_',$links);//Prevent encoding spaces
-						$links = str_replace(array('[',']'),'',$links);//Remove illegal characters
-						$links = urlencode($links);
-						$links = str_replace('%2F','/',$links);//Handle subpages cleanly
-						$links = str_replace('%3A',':',$links);//Handle subpages cleanly
- 
-					        //if( stripos($d[2], "##juliancolton") !== false ) {
-						//    fwrite( $irc,'PRIVMSG '.$d[2].' :Yeah, bitches, here\'s the links! '.$links."\n" );
-						//}
-					        //else {
-						    fwrite( $irc,'PRIVMSG '.$d[2].' :'.$nick.': '.$links."\n" );
-						//}
-						usleep(500);
+ 						
+ 						$link = str_replace('$1',$link,'http://en.wikipedia.org/wiki/$1');//Append url
+						$link = str_replace(' ','_',$link);//Prevent encoding spaces
+						$link = str_replace(array('[',']'),'',$link);//Remove illegal characters
+						$link = urlencode($link);//Urlencode it
+						$link = str_replace('%2F','/',$link);//Handle subpages cleanly
+						$link = str_replace('%3A',':',$link);//Handle subpages cleanly
+						
+						$links[] = $link;
 						$i++;
+					}
+					
+					$links = implode( ', ', $links);
+					
+					if( stripos($chan, "##juliancolton") !== false && 1 == 2 ) {//Disabled... 1 is never equal to 2
+						fwrite( $irc,'PRIVMSG '.$d[2].' :Yeah, bitches, here\'s the links! '.$links."\n" );
+					}
+					else {
+						fwrite( $irc,'PRIVMSG '.$d[2].' :'.$nick.': '.$links."\n" );
 					}
 				}
  
 				//Template linker function
-				if (preg_match_all('/\{\{(.*?)\}\}/', $me, $l)) {
-					if (in_arrayi($cloak, unserialize(file_get_contents('/home/soxred93/bots/soxbot-test/blacklist') ) ) ) {
-						//fwrite( $irc,$cmd.' :Denied. Your name has been added to the blacklist, to prevent abuse.'." \n" ); 
-						continue; 
-					} 
+				if (preg_match_all('/\{\{(.*?)\}\}/', $me, $l) && !preg_match('/(\!shortpath|\!link)/i',$data)) { 
  
 					if( !in_arrayi( $chan, explode( ',',$ircwikilinkchannels ) ) ) { 
-						echo "Not in a channel I am allowed to wikilink.\n";
+						echo "Message in $chan is not in a channel I am allowed to templatelink.\n";
 						continue; 
 					}
  
 					$i = 1;
-					foreach($l[1] as $links) {
-						if($i >= 5) { continue; }
+					$links = array(); //Will store the full urls
+					foreach($l[1] as $link) {
+						if($i >= 5) break;
  
-						//if( !$wpq->getpage( 'Template:'.$links ) ) { continue; }
 						//Deal with piped links
-						if( strpos( $links, '|' ) !== false ) { 
-							$links = explode('|', $links);
-							$links = $links[0];
+						if( strpos( $link, '|' ) !== false ) { 
+							$link = explode('|', $link);
+							$link = $link[0];
 						}
- 
- 						if( in_array( $links, array(
- 							'sofixit',
- 							'done',
- 						) ) ) { continue; }
-						$links = str_replace(' ','_',$links);//Prevent encoding spaces
-						$links = str_replace('subst:','',$links);//Rm subst
-						$links = str_replace(array('[',']','{','}'),'',$links);//Remove illegal characters
-						$links = urlencode($links);
-						$links = str_replace('%2F','/',$links);//Handle subpages cleanly
- 
-						fwrite( $irc,'PRIVMSG '.$d[2].' :'.$nick.': http://en.wikipedia.org/wiki/Template:'.$links."\n" );
-						usleep(500);
+ 						
+ 						$link = str_replace('$1',$link,'http://en.wikipedia.org/wiki/Template:$1');//Append url
+ 						$link = str_replace('subst:', '', $link);//Remove subst
+						$link = str_replace(' ','_',$link);//Prevent encoding spaces
+						$link = str_replace(array('[',']'),'',$link);//Remove illegal characters
+						$link = urlencode($link);//Urlencode it
+						$link = str_replace('%2F','/',$link);//Handle subpages cleanly
+						$link = str_replace('%3A',':',$link);//Handle subpages cleanly
+						
+						$links[] = $link;
 						$i++;
+					}
+					
+					$links = implode( ', ', $links);
+					
+					if( stripos($chan, "##juliancolton") !== false && 1 == 2 ) {//Disabled... 1 is never equal to 2
+						fwrite( $irc,'PRIVMSG '.$d[2].' :Yeah, bitches, here\'s the links! '.$links."\n" );
+					}
+					else {
+						fwrite( $irc,'PRIVMSG '.$d[2].' :'.$nick.': '.$links."\n" );
 					}
 				}
  
 				//Main function parser
-				if ( in_array( substr($me,0,1), array( '!', '@', '~', '.', '#', '$', '%', '^', '&', '*', '?' ) ) || in_array( substr($me,0,8), array( 'SoxBot: ', 'SoxBot, ' ) ) ) {
-					if( in_array( substr($me,0,8), array( 'SoxBot: ', 'SoxBot, ' ) ) ) {
-						$command = explode(' ',$me);
-						$command = $command[0];
-					}
-					else {
-						$command = explode(' ',substr(strtolower($me),1));
-						$command = $command[0];
-					}
- 
-					if( $command != 'staff' && $d[2] == '#unixpod' ) continue;
+				if ( in_array( substr($me,0,1), $triggercharacters ) ) {
+					$command = explode(' ',substr(strtolower($me),1));
+					$command = $command[0];
  
 					echo "Got a command! The command is: ".$command."\n";
  
@@ -388,26 +318,19 @@ Block quote
 						'lastedit', 
 						'stalk', 
 						'status', 
-						'beaten', 
-						'listbeaten',
 						'c',
 						'count', 
 						'eval', 
 						'amsg', 
 						/* 'die', */
-						/*'restart', */
-						'blacklistadd', 
+						/*'restart', */ //die and restart are broken right now
 						'maxlag', 
-						'blacklistdel', 
 						'replag', 
-						'nosourcepost', 
-						'yessourcepost', 
+						'setspeak',
+						'speak',
 						'soxbotcounts', 
 						'cluebotcounts',
 						'commands', 
-						'postsource',
-						'setspeak',
-						'speak',
 						'version',
 						'shortpath',
 						'link',
@@ -417,24 +340,20 @@ Block quote
 						'namesadd',
 						'namesdel',
 						'rfxupdate',
+						'ip2name',
+						'name2ip',
 						'dns',
 						'rdns',
 						'rand',
-						'howlong',
 					);
  
 					//Don't do anything if the command doesn't even exist
 					if( !in_arrayi( $command, $commands ) ) {
 						echo "Command not allowed.\n";
 						continue;
-					}
+					}			
  
-					//Check if user is on the blacklist
-					if (preg_match('/'.preg_quote($cloak,'/').'/i', file_get_contents('/home/soxred93/bots/soxbot-test/blacklist') ) ) { 
-						//fwrite( $irc,'PRIVMSG '.$d[2].' :Denied. Your name has been added to the blacklist, to prevent abuse.'." \n" ); 
-						continue; 
-					} 			
- 
+ 					//PRIVMSG command, just a shortcut
 					$cmd = 'PRIVMSG '.$chan;
  
 					//Get the parameters
@@ -443,7 +362,6 @@ Block quote
 					$param = implode(' ', $param);
 					$param = trim($param);
  
-					echo "Command: $command\n";
 					echo "Params: $param\n";
  
 					//Different functions for different commands
@@ -494,90 +412,59 @@ Block quote
 								$run = true;
 							}
  
-							//Get top 5 beaters
-							$top5beat = array();
-							if (!mysql_ping($mysql)) { $mysql = mysql_pconnect($mysqlhost.':'.$mysqlport,$mysqluser,$mysqlpass,/* Force reconnect --> */ true); mysql_select_db($mysqldb, $mysql); }//Force a reconnect if it has dropped the connection
- 
-							$q = mysql_query('SELECT `user`,COUNT(`id`) AS `count` FROM `beaten` WHERE `user` != \'\' GROUP BY `user` HAVING `count` > 1 ORDER BY `count` DESC LIMIT 5');
-							while ($x = mysql_fetch_assoc($q)) {
-								$top5beat[] = $x['user'].' ('.$x['count'].')';
-							}
-							unset($x,$q);
-							$top5beat = implode(' - ',$top5beat);
- 
-							Echo "Frwiting.\n";
 							fwrite( $irc,$cmd.' :I am '.$user.'.  I am currently '.($run?'enabled':'disabled').'.  I currently have '.$wpq->contribcount($user).' contributions.'."\n" ); sleep(1);
 							fwrite( $irc,$cmd.' :I am currently running version '.$version.' of SoxBot Anti-Testing Bot.'."\n" ); sleep(1);
 							fwrite( $irc,$cmd.' :I have attempted to revert '.$count.' unique article/user combinations in the last 24 hours. '."\n" ); sleep(1);
 							fwrite( $irc,$cmd.' :I have attempted to revert '.($wpq->contribcount($user) - 5341).' edits throughout my lifetime. '."\n" ); sleep(1);
-							fwrite( $irc,$cmd.' :The following users have beat me to the revert the most: '.$top5beat."\n" ); sleep(1);
-							fwrite( $irc,$cmd.' :I log all information to '.$ircchannel.'.  This channel is '.$d[2].'.'."\n" ); 
+							fwrite( $irc,$cmd.' :I log all information to '.$ircchannel.'.  This channel is '.$chan.".\n" ); 
  
-							unset($count,$run,$time,$top5beat);
-							break;
-						case 'beaten':
-							if( !$param || $param == '' ) { fwrite( $irc,$cmd.' :Required parameter not given.'."\n" );continue; }
-							if (preg_match("/\[\[User:(.*)\]\]/",$param,$m)) {
-								$param = $m[1];
-								unset($m);
-							}
- 
-							if (!mysql_ping($mysql)) { $mysql = mysql_pconnect($mysqlhost.':'.$mysqlport,$mysqluser,$mysqlpass,/* Force reconnect --> */ true); mysql_select_db($mysqldb, $mysql); }//Force a reconnect if it has dropped the connection
- 
-							$x = mysql_fetch_assoc(mysql_query('SELECT COUNT(`id`) AS `count` FROM `beaten` WHERE `user` = \''.mysql_real_escape_string($param).'\' GROUP BY `user`'));
-							$y = mysql_fetch_assoc(mysql_query('SELECT SQL_CALC_FOUND_ROWS COUNT(`id`) AS `count2` FROM `beaten` GROUP BY `user` HAVING `count2` > \''.mysql_real_escape_string($x['count']).'\' LIMIT 1'));
-							$z = mysql_fetch_assoc(mysql_query('SELECT FOUND_ROWS() as `ahead`'));
- 
-							echo "Frwiting...\n";
-							fwrite( $irc,$cmd.' :'.$param.' has beaten me '.(($x['count'] != '')?$x['count']:'0').' times.  There are '.(($z['ahead'] != '')?$z['ahead']:'0').' users who have beaten me more times.'."\n" ); 
-							echo "Done?\n";
-							unset($x,$y,$z);
-							break;
-						case 'listbeaten':
- 
-							if (!mysql_ping($mysql)) { $mysql = mysql_pconnect($mysqlhost.':'.$mysqlport,$mysqluser,$mysqlpass,/* Force reconnect --> */ true); mysql_select_db($mysqldb, $mysql); }//Force a reconnect if it has dropped the connection
-							$beats = array();
-							$x = mysql_query('SELECT * from `beaten`');
- 
-							while ($row = mysql_fetch_assoc($x)) {
-								if( !isset($beats[$row['user']]) ) { $beats[$row['user']] = 0; } 
-								$beats[$row['user']]++;
-							}
- 
-							$msg = 'Beaten: ';
-							foreach( $beats as $user => $count ) {
-								$msg .= "\002" . $user . "\002 => " .$count . ', ';
-							}
- 
-							echo "Frwiting...\n";
-							fwrite( $irc,$cmd.' :'.$msg."\n" ); 
-							unset($x);
+							unset($count,$run,$time);
 							break;
 						case 'c':
 						case 'count':
-							$contents = unserialize(file_get_contents('/home/soxred93/bots/soxbot-test/names'));
- 
+								
+							//Reconnect if it has dropped the connection
+							if (!mysql_ping($mysql)) { 
+								include_once('/home/soxred93/database.inc');
+								$mysql = mysql_connect( "sql:3306","soxred93",$toolserver_password );
+								@mysql_select_db( "u_soxred93", $mysql ) or die( "MySQL error: " .mysql_error() );
+							}
+							
+							//Get the aliases of certain users
+							$result = mysql_query( "SELECT * FROM names" );
+							$contents = array();
+							while( $row = mysql_fetch_assoc( $result ) ) {
+								$contents[ $row['nick'] ] = $row['user'];
+							}
+ 							
+ 							//First see if there's no param at all, which implies that they want their own count
 							if( !$param || $param == '' ) { 
+							
+								//Check if it's in the known nicks
 								if( isset($contents[$nick])) { 
 									$param = $contents[$nick];
 								}
+								
+								//Check if it's a valid user, for users who use their WP name as their nick
 								elseif( $wpapi->users($nick) ) {
 									$param = $nick;
 								}
+								
+								//Don't know? Ignore.
 								else {
-									fwrite( $irc,$cmd.' :Required parameter not given.'."\n" );continue; 
+									fwrite( $irc,$cmd.' :Required parameter not given. Talk to X! if you want .count to work for your nick.'."\n" );continue; 
 								}
 							}
+							
+							//Now see if someone passed a nick as a param
 							elseif( isset($contents[$param])) { 
 								$param = $contents[$param];
 							}
+							
 							$r3 = urlencode($param);
 							$r3 = str_replace('+','_',$r3);
- 
-							echo "\n\n\n{$d[2]}\n\n";
 							
-							
-							if( $d[2] == "#wikipedia-simple" ) {
+							if( $chan == "#wikipedia-simple" ) {
 								$count = $simplewpq->contribcount($param);
 								$r3 .= "/simple";
 								fwrite( $irc,$cmd.' :'.$param.' has '.$count." contributions. For more info, see http://toolserver.org/~soxred93/ec/$r3 \n" ); 
@@ -619,12 +506,7 @@ Block quote
  							fwrite( $irc,$cmd.' :'.$param.' has '.$edit_count_total." total contributions, $edit_count_live live edits, and $edit_count_deleted deleted edits. For more info, see http://toolserver.org/~soxred93/ec/$r3 \n" ); 
 							break;
 						case 'soxbotcounts':
-							//Parse page for list of bots
-							/*$bots = $wpq->getpage('User:'.$owner.'/Sox Commons');
-							preg_match_all('/\=\= \[\[User\:(.*)\|(.*)\]\] \=\=/', $bots, $b);
-							unset($b[0]);
-							unset($b[1]);
-							$b = $b[2];*/
+
 							$b = array( 
 								'SoxBot',
 								'SoxBot II',
@@ -650,7 +532,7 @@ Block quote
 							unset($b, $bots, $bot, $ms);
 							break;
 						case 'cluebotcounts':
-							//Parse page for list of bots
+
 							$b = array( 'ClueBot', 'ClueBot II', 'ClueBot III', 'ClueBot IV', 'ClueBot V', 'ClueBot VI');
  
 							$ms = '';
@@ -686,7 +568,7 @@ Block quote
 						case 'amsg':
 							if( !$param || $param == '' ) { fwrite( $irc,$cmd.' :Required parameter not given.'."\n" );continue; }
 							if (in_array($cloak, $trustedusers)) {
-								foreach( array_unique($channels) as $ch ) {
+								foreach( $channels as $ch ) {
 									fwrite( $irc,'PRIVMSG '.$ch.' :Message from '.$nick.': '.$param."\n" );
 									sleep(1);
 								}
@@ -728,55 +610,18 @@ Block quote
 								fwrite( $irc,$cmd.' :restart can only be used by trusted members.'."\n" );
 							}
 							break;
-						case 'blacklistadd':
-							if (in_array($cloak, $trustedusers)) {
-								$contents = unserialize(file_get_contents('/home/soxred93/bots/soxbot-test/blacklist'));
-								$contents[] = $param;
-								file_put_contents('/home/soxred93/bots/soxbot-test/blacklist',
-									serialize($contents)
-								);	
-								fwrite( $irc,$cmd.' :Done!'."\n" );
-							}
-							else {
-								fwrite( $irc,$cmd.' :blacklistadd can only be used by trusted members.'."\n" );
-							}
-							break;
-						case 'blacklistdel':
-							if (in_array($cloak, $trustedusers)) {
-								$contents = unserialize(file_get_contents('/home/soxred93/bots/soxbot-test/blacklist'));
-								$key = array_search($param,$contents);
-								unset($contents[$key]);
-								file_put_contents('/home/soxred93/bots/soxbot-test/blacklist',
-									serialize($contents)
-								);
-								fwrite( $irc,$cmd.' :Done!'."\n" );
-							}
-							else {
-								fwrite( $irc,$cmd.' :blacklistdel can only be used by trusted members.'."\n" );
-							}
-							break;
 						case 'namesadd':
 							if (in_array($cloak, $trustedusers)) {
 								$param = explode(' ',$param);
 								
-								if (!mysql_ping($mysql)) {
-									$mysql = mysql_connect( $mysqlhost.':'.$mysqlport,$mysqluser,$mysqlpass );
-									@mysql_select_db( $mysqldb, $mysql );
-									echo mysql_stat();
+								//Check if the connection is still there
+								if (!mysql_ping($mysql)) { 
+									include_once('/home/soxred93/database.inc');
+									$mysql = mysql_connect( "sql:3306","soxred93",$toolserver_password );
+									@mysql_select_db( "u_soxred93", $mysql ) or die( "MySQL error: " .mysql_error() );
 								}
-								echo mysql_stat();
-								//$contents = unserialize(file_get_contents('/home/soxred93/bots/soxbot-test/names'));
-								//$contents[$param[0]] = $param[1];
-								//file_put_contents('/home/soxred93/bots/soxbot-test/names',
-								//	serialize($contents)
-								//);
-								echo mysql_stat();
-								echo "INSERT INTO names VALUES ('".mysql_real_escape_string($param[0])."', '".mysql_real_escape_string($param[1])."');";
-								echo mysql_stat();
+
 								mysql_query( "INSERT INTO names VALUES ('".mysql_real_escape_string($param[0])."', '".mysql_real_escape_string($param[1])."');", $mysql );
-								echo mysql_stat();
-								echo mysql_info();
-								echo mysql_stat();
 								fwrite( $irc,$cmd.' :Done!'."\n" );
 							}
 							else {
@@ -787,51 +632,18 @@ Block quote
 							if (in_array($cloak, $trustedusers)) {
 								$param = explode(' ',$param);
 								
-								if (!mysql_ping($mysql)) {
-									$mysql = mysql_connect( $mysqlhost.':'.$mysqlport,$mysqluser,$mysqlpass );
-									@mysql_select_db( $mysqldb, $mysql );
+								//Check if the connection is still there
+								if (!mysql_ping($mysql)) { 
+									include_once('/home/soxred93/database.inc');
+									$mysql = mysql_connect( "sql:3306","soxred93",$toolserver_password );
+									@mysql_select_db( "u_soxred93", $mysql ) or die( "MySQL error: " .mysql_error() );
 								}
-								
-								//$contents = unserialize(file_get_contents('/home/soxred93/bots/soxbot-test/names'));
-								//unset($contents[$param[0]]);
-								//file_put_contents('/home/soxred93/bots/soxbot-test/names',
-								//	serialize($contents)
-								//);
 								
 								mysql_query( "DELETE FROM names WHERE '".mysql_real_escape_string($param[0])."' = nick;", $mysql );
 								fwrite( $irc,$cmd.' :Done!'."\n" );
 							}
 							else {
 								fwrite( $irc,$cmd.' :namesdel can only be used by trusted members.'."\n" );
-							}
-							break;
-						case 'nosourcepost':
-							if ($cloak == $ownercloak) {
-								file_put_contents('/home/soxred93/bots/soxbot-test/postsource', '0');	
-								fwrite( $irc,$cmd.' :Done!'."\n" );
-							}
-							else {
-								fwrite( $irc,$cmd.' :nosourcepost can only be used by '.$ownercloak.'.'."\n" );
-							}
-							break;
-						case 'yessourcepost':
-							if ($cloak == $ownercloak) {
-								file_put_contents('/home/soxred93/bots/soxbot-test/postsource', '1');	
-								fwrite( $irc,$cmd.' :Done!'."\n" );
-							}
-							else {
-								fwrite( $irc,$cmd.' :yessourcepost can only be used by '.$ownercloak.'.'."\n" );
-							}
-							break;
-						case 'postsource':
-							if (in_array($cloak, $trustedusers)) {
-								$wpi->forcepost('User:'.$user.'/Source',
-		'The following is automatically generated by [[User:'.$user.'|'.$user."]]. It uses [[User:ClueBot/Source|ClueBot classes]] for interacting with the wiki, and also uses some of ClueBot's code for interacting with IRC.\n\n".'<source lang="php">'.str_replace('</sou<!-- -->rce>','</sou<!-- -->rce>', file_get_contents(__FILE__))."</sou<!-- -->rce>\n\n\n\n",
-		'Automated source upload.');	
-								fwrite( $irc,$cmd.' :Done!'."\n" );
-							}
-							else {
-								fwrite( $irc,$cmd.' :postsource can only be used by trusted members.'."\n" ); 
 							}
 							break;
 						case 'replag':
@@ -876,44 +688,24 @@ Block quote
         						$row = mysql_fetch_assoc( $result );
         						$secs = $row['replag'];
  
-        						$second = 1;
-								$minute = $second * 60;
-								$hour = $minute * 60;
-								$day = $hour * 24;
-								$week = $day * 7;
- 
 								$msg .= "\002" . $display . "\002 -> ";
  
-								if( $secs > $day ) {
+								if( $secs > ( 24 * 60 * 60 ) ) {
 									$msg .= "\00305"; 
 								}
-								elseif( $secs > $hour ) {
+								elseif( $secs > ( 60 * 60 ) ) {
 									$msg .= "\00308"; 
 								}
 								else {
 									$msg .= "\00302"; 
 								}
- 
-								if ($secs > $week) {
-									$msg .= floor($secs/$week) . 'w, ';
-									$secs %= $week;
-								}
-								if ($secs > $day) {
-									$msg .= floor($secs/$day) . 'd, ';
-									$secs %= $day;
-								}
-								if ($secs > $hour) {
-									$msg .= floor($secs/$hour) . 'h, ';
-									$secs %= $hour;
-								}
-								if ($secs > $minute) {
-									$msg .= floor($secs/$minute) . 'm, ';
-									$secs %= $week;
-								}
-								$msg .= floor(($secs/$second)/100) . 's. ' . "\003";
+								
+								$msg .= secs2str($secs);
+								$msg .= "\003 / ";
 							}
-							$mysql = mysql_connect($mysqlhost.':'.$mysqlport,$mysqluser,$mysqlpass,/* Force reconnect --> */ true);
-							mysql_select_db($mysqldb, $mysql);
+							
+							$mysql = mysql_connect( "sql:3306",$mysqluser,$mysqlpass );
+							@mysql_select_db( $mysqldb, $mysql );
  
 							fwrite( $irc,$cmd.' :'.$msg."\n" );
 							unset($msg,$replag,$servers,$row,$minute,$hour,$second,$day,$week,$secs);
@@ -996,31 +788,46 @@ Block quote
 							break;
 						case 'h':
 						case 'hits':
-							//$contents = unserialize(file_get_contents('/home/soxred93/bots/soxbot-test/names'));
 							
+							//Reconnect if it has dropped the connection
+							if (!mysql_ping($mysql)) { 
+								include_once('/home/soxred93/database.inc');
+								$mysql = mysql_connect( "sql:3306","soxred93",$toolserver_password );
+								@mysql_select_db( "u_soxred93", $mysql ) or die( "MySQL error: " .mysql_error() );
+							}
+							
+							//Get the aliases of certain pages
 							$result = mysql_query( "SELECT * FROM names" );
 							$contents = array();
 							while( $row = mysql_fetch_assoc( $result ) ) {
 								$contents[ $row['nick'] ] = $row['user'];
 							}
- 
+ 							
+ 							//First see if there's no param at all, which implies that they want their own user talk page
 							if( !$param || $param == '' ) { 
+							
+								//Check if it's in the known nicks
 								if( isset($contents[$nick])) { 
 									$param = "User talk:".$contents[$nick];
 								}
+								
+								//Check if it's a valid user, for users who use their WP name as their nick
 								elseif( $wpapi->users($nick) ) {
 									$param = "User talk:".$nick;
 								}
+								
+								//Don't know? Ignore.
 								else {
-									fwrite( $irc,$cmd.' :Required parameter not given.'."\n" );continue; 
+									fwrite( $irc,$cmd.' :Required parameter not given. Talk to X! if you want .hits to work for your nick.'."\n" );continue; 
 								}
 							}
+							
+							//Now see if someone passed a nick as a param
 							elseif( isset($contents[$param])) { 
-								$param = $contents[$param];
-							}
+								$param = "User talk:".$contents[$param];
+							}							
 							
-							
-							if( $d[2] == "#wikipedia-simple" ) {
+							if( $chan == "#wikipedia-simple" ) {
 								$simplehits = 'simple';
 							}
 							else {
@@ -1041,15 +848,11 @@ Block quote
 							}
 							unset($r3);
 							break;
-						case 'staff':
-							if ($d[2] == '#unixpod') {
-								fwrite( $irc,$cmd.' :PING STAFF from '.$nick.": chuck, mrmonday, sdkmvx, T-s-i-o-n\n" );
-							}
-							break;
 						case 'rfxupdate':
 							if (in_array($cloak, $trustedusers)) {
 								echo "Updating...\n";
-								echo shell_exec("/usr/bin/php /home/soxred93/rfxbot.php");
+								echo shell_exec("/usr/bin/php /home/soxred93/bots/rfx-report.php");
+								echo shell_exec("/usr/bin/php /home/soxred93/bots/rfx-tally.php");
 								fwrite( $irc,$cmd.' :Done!'."\n" );
 							}
 							else {
@@ -1060,22 +863,21 @@ Block quote
 						case 'rdns':
 							if( !$param || $param == '' ) { fwrite( $irc,$cmd.' :Required parameter not given.'."\n" );continue; }
  
-							$rdns = shell_exec("/bin/sh /home/soxred93/rdns.sh $param");
+							$rdns = gethostbyaddr($param);
  
-							if( !$rdns ) {
+							if( $rdns == $param ) {
 								fwrite( $irc,$cmd.' :Not found.'."\n" );continue;
 							}
  							
- 							$rdns = substr( $rdns, 0, ( strlen( $rdns ) -1 ) );
 							fwrite( $irc,$cmd.' :Result: '.$rdns."\n" );continue;
 							break;
 						case 'host2ip':
 						case 'dns':
 							if( !$param || $param == '' ) { fwrite( $irc,$cmd.' :Required parameter not given.'."\n" );continue; }
  
-							$dns = shell_exec("/bin/sh /home/soxred93/dns.sh $param");
+							$dns = gethostbyname($param);
  
-							if( !$dns ) {
+							if( $dns == $param ) {
 								fwrite( $irc,$cmd.' :Not found.'."\n" );continue;
 							}
  							
@@ -1090,44 +892,14 @@ Block quote
  							echo "Random number: $rand\n";
  							fwrite( $irc,$cmd.' :Result: '.$rand."\n" );
  							break;
- 						case 'howlong':
- 							break;
-							if( !$param || $param == '' ) { fwrite( $irc,$cmd.' :Required parameter not given.'."\n" );continue; }
- 							$rand = explode( ' ', $param );
- 							$rand = mt_rand($rand[0],$rand[1]);
- 							if( $rand[1] > 20 ) break;
-
- 							echo "Random number: $rand\n";
- 							$randstr = "8";
- 							$randstr .= str_repeat( "=", $rand );
- 							$randstr .= "D";
- 							fwrite( $irc,$cmd.' :'.$randstr."\n" );
- 							break;
 					}
 				}
 			}
 		}
 		posix_kill(posix_getppid(), SIGTERM);
-		die("GHGHHAHHAAAAAAAAAA");
 	}
  
 	$run = $wpq->getpage('User:'.$user.'/Run');
- 
-	//Don't post source if it is disabled
-	if( file_get_contents( '/home/soxred93/bots/soxbot-test/postsource' ) == 1 ) {
-		$wpi->forcepost('User:'.$user.'/Source',
-		'The following is automatically generated by [[User:'.$user.'|'.$user."]]. It uses [[User:ClueBot/Source|ClueBot classes]] for interacting with the wiki, and also uses some of ClueBot's code for interacting with IRC.\n\n".'<source lang="php">'.str_replace('</sou<!-- -->rce>','</sou<!-- -->rce>', file_get_contents(__FILE__))."</sou<!-- -->rce>\n\n\n\n",
-		'Automated source upload.');
-	}
- 
-	//Get list of articles and users to stalk
-	$stalk = array();
-	$edit = array();
-	$tmp = explode("\n",$wpq->getpage('User:'.$user.'/Autostalk.js'));
-	foreach ($tmp as $tmp2) { if (substr($tmp2,0,1) != '#') { $tmp3 = explode('|',$tmp2,2); $stalk[$tmp3[0]] = trim($tmp3[1]); } }
-	$tmp = explode("\n",$wpq->getpage('User:'.$user.'/Autoedit.js'));
-	foreach ($tmp as $tmp2) { if (substr($tmp2,0,1) != '#') { $tmp3 = explode('|',$tmp2,2); $edit[$tmp3[0]] = trim($tmp3[1]); } }
-	unset($tmp,$tmp2,$tmp3);
  
 	//Start IRC feed parser
 	while (1) {
@@ -1156,7 +928,7 @@ Block quote
 				fwrite($feed,'JOIN '.$feedchannel."\n");
 			} elseif ((strtolower($linea[1]) == 'privmsg') and (strtolower($linea[2]) == strtolower($feedchannel))) {
 				$message = substr($linea[3],1);
-				if (preg_match('/^\[\[((Talk|User|Wikipedia|Image|MediaWiki|Template|Help|Category|Portal|Special)(( |_)talk)?:)?([^\x5d]*)\]\] (\S*) (http:\/\/en\.wikipedia\.org\/w\/index\.php\?diff=(\d*)&oldid=(\d*)|http:\/\/en\.wikipedia\.org\/wiki\/\S+)? \* ([^*]*) \* (\(([^)]*)\))? (.*)$/S',$message,$m)) {
+				if (preg_match($holycraplongregex,$message,$m)) {
 					$messagereceived = microtime(1);
 					$change['namespace'] = $m[1];
 					$change['title'] = $m[5];
@@ -1321,7 +1093,7 @@ Block quote
 							'\';';
 							echo $query;
 							if (!mysql_ping($mysql)) { $mysql = 
-								mysql_connect($mysqlhost.':'.$mysqlport,$mysqluser,$mysqlpass,/* Force reconnect --> */ true);echo "Ping?\n"; 
+								mysql_connect($mysqlhost,$mysqluser,$mysqlpass,/* Force reconnect --> */ true);echo "Ping?\n"; 
 								mysql_select_db($mysqldb, $mysql); 
 							}
 							$result = mysql_query($query);
@@ -1356,7 +1128,7 @@ Block quote
 								'\''.date( 'Y-m-d' ).'\',' .
 								'\''.mysql_real_escape_string($score).'\');';
 							if (!mysql_ping($mysql)) {
-								$mysql = mysql_pconnect($mysqlhost.':'.$mysqlport,$mysqluser,$mysqlpass,/* Force reconnect --> */ true);
+								$mysql = mysql_pconnect($mysqlhost,$mysqluser,$mysqlpass,/* Force reconnect --> */ true);
 								if (!$mysql) { die('Could not connect: ' . mysql_error()); }
 								if (!mysql_select_db($mysqldb, $mysql)) { die ('Can\'t use database : ' . mysql_error()); }
 							}
