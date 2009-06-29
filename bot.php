@@ -144,7 +144,7 @@
 	$enwiki_mysql = mysql_connect( "enwiki-p.db.toolserver.org",$databaseuser,$databasepass,/* Force reconnect --> */ true );
 	@mysql_select_db( "enwiki_p", $enwiki_mysql ) or die( "MySQL error: " .mysql_error() );
 
-	$mysql = mysql_connect( "sql:3306",$mysqluser,$mysqlpass );
+	$mysql = mysql_connect( "sql",$mysqluser,$mysqlpass );
 	@mysql_select_db( $mysqldb, $mysql ) or die( "MySQL error: " .mysql_error() );
  
  
@@ -426,12 +426,15 @@
 							//Reconnect if it has dropped the connection
 							if (!mysql_ping($mysql)) { 
 								include_once('/home/soxred93/database.inc');
-								$mysql = mysql_connect( "sql:3306","soxred93",$toolserver_password );
-								@mysql_select_db( "u_soxred93", $mysql ) or die( "MySQL error: " .mysql_error() );
+								$mysql = mysql_connect( "sql","soxred93",$toolserver_password,true );
+								echo "\n\n".mysql_error()."\n\n";
+								var_dump($mysql);
+								if( !$mysql ) die( mysql_error() );
+								mysql_select_db( "u_soxred93", $mysql ) or die( "MySQL error: " .mysql_error() );
 							}
 							
 							//Get the aliases of certain users
-							$result = mysql_query( "SELECT * FROM names" );
+							$result = mysql_query( "SELECT * FROM names", $mysql );
 							$contents = array();
 							while( $row = mysql_fetch_assoc( $result ) ) {
 								$contents[ $row['nick'] ] = $row['user'];
@@ -471,7 +474,9 @@
 								break;
 							}
 							
+							//Make names match those in the database
 							$param = str_replace('_', ' ', $param);
+							$param = ucfirst( $param );
 							
 							if (!mysql_ping($enwiki_mysql)) { 
 								$enwiki_mysql = mysql_connect("enwiki-p.db.toolserver.org",$databaseuser,$databasepass,/* Force reconnect --> */ true);
@@ -617,7 +622,7 @@
 								//Check if the connection is still there
 								if (!mysql_ping($mysql)) { 
 									include_once('/home/soxred93/database.inc');
-									$mysql = mysql_connect( "sql:3306","soxred93",$toolserver_password );
+									$mysql = mysql_connect( "sql","soxred93",$toolserver_password,true );
 									@mysql_select_db( "u_soxred93", $mysql ) or die( "MySQL error: " .mysql_error() );
 								}
 
@@ -635,7 +640,7 @@
 								//Check if the connection is still there
 								if (!mysql_ping($mysql)) { 
 									include_once('/home/soxred93/database.inc');
-									$mysql = mysql_connect( "sql:3306","soxred93",$toolserver_password );
+									$mysql = mysql_connect( "sql","soxred93",$toolserver_password,true );
 									@mysql_select_db( "u_soxred93", $mysql ) or die( "MySQL error: " .mysql_error() );
 								}
 								
@@ -704,7 +709,7 @@
 								$msg .= "\003 / ";
 							}
 							
-							$mysql = mysql_connect( "sql:3306",$mysqluser,$mysqlpass );
+							$mysql = mysql_connect( "sql",$mysqluser,$mysqlpass );
 							@mysql_select_db( $mysqldb, $mysql );
  
 							fwrite( $irc,$cmd.' :'.$msg."\n" );
@@ -792,7 +797,7 @@
 							//Reconnect if it has dropped the connection
 							if (!mysql_ping($mysql)) { 
 								include_once('/home/soxred93/database.inc');
-								$mysql = mysql_connect( "sql:3306","soxred93",$toolserver_password );
+								$mysql = mysql_connect( "sql","soxred93",$toolserver_password,true );
 								@mysql_select_db( "u_soxred93", $mysql ) or die( "MySQL error: " .mysql_error() );
 							}
 							
